@@ -6,8 +6,8 @@ import mysql.connector
 # Database connection parameters - make sure these match your MySQL setup
 # !!! IMPORTANT: Replace with your actual MySQL credentials and host !!!
 DB_HOST = "localhost"
-DB_USER = "your_mysql_user"
-DB_PASSWORD = "your_mysql_password"
+DB_USER = "root"
+DB_PASSWORD = "Divinity:100"
 DB_NAME = "ALX_prodev"
 
 def stream_users_in_batches(batch_size):
