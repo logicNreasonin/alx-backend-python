@@ -1,0 +1,442 @@
+{
+	"info": {
+		"_postman_id": "21c7ffaa-7d72-4cb0-a60f-71cda0636bb8",
+		"name": "Messaging App API",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "45530328",
+		"_collection_link": "https://jayjay-1287253.postman.co/workspace/Jay-Jay's-Workspace~e08183aa-d14c-4953-80dd-b47aad580fd8/collection/45530328-21c7ffaa-7d72-4cb0-a60f-71cda0636bb8?action=share&source=collection_link&creator=45530328"
+	},
+	"item": [
+		{
+			"name": "Login testuser1",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {\r",
+							"    pm.response.to.have.status(200);\r",
+							"});\r",
+							"var jsonData = pm.response.json();\r",
+							"pm.environment.set(\"accessTokenUser1\", jsonData.access);\r",
+							"console.log(\"User1 Access Token: \" + jsonData.access);"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"username\": \"brosef\",\r\n    \"password\": \"JayJay247in\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseURL}}/api/token/",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"api",
+						"token",
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Login testuser2",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {\r",
+							"    pm.response.to.have.status(200);\r",
+							"});\r",
+							"var jsonData = pm.response.json();\r",
+							"pm.environment.set(\"accessTokenUser2\", jsonData.access);\r",
+							"console.log(\"User2 Access Token: \" + jsonData.access);"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"username\": \"testuser2\",\r\n    \"password\": \"testpassword123\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseURL}}/api/token/",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"api",
+						"token",
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Access Protected Endpoint (No Token)",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/api/conversations/",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"api",
+						"conversations",
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Access Protected Endpoint (Invalid Token)",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "thisisafaketoken",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/api/conversations/",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"api",
+						"conversations",
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Create Conversation (testuser1 with testuser2)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 201 Created\", function () {\r",
+							"    pm.response.to.have.status(201);\r",
+							"});\r",
+							"var jsonData = pm.response.json();\r",
+							"pm.expect(jsonData.id).to.exist;\r",
+							"pm.environment.set(\"conversationId\", jsonData.id);\r",
+							"console.log(\"Conversation ID: \" + jsonData.id);\r",
+							"// Check if both users are participants (User 1 is auto-added)\r",
+							"const participants = jsonData.participants;\r",
+							"const user1IsParticipant = participants.some(p => p.id == pm.environment.get(\"userId1\"));\r",
+							"const user2IsParticipant = participants.some(p => p.id == pm.environment.get(\"userId2\"));\r",
+							"pm.test(\"User 1 is a participant\", function() { pm.expect(user1IsParticipant).to.be.true; });\r",
+							"pm.test(\"User 2 is a participant\", function() { pm.expect(user2IsParticipant).to.be.true; });"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{accessTokenUser1}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"participant_ids\": [{{userId2}}]\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseURL}}/api/conversations/",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"api",
+						"conversations",
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Send Message (testuser1 to conversation)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 201 Created\", function () {\r",
+							"    pm.response.to.have.status(201);\r",
+							"});\r",
+							"var jsonData = pm.response.json();\r",
+							"pm.expect(jsonData.id).to.exist;\r",
+							"pm.expect(jsonData.sender).to.eql(\"brosef\"); // Assuming sender is serialized as username"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{accessTokenUser1}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"conversation\": {{conversationId}},\r\n    \"content\": \"Hello testuser2, from brosef!\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseURL}}/api/messages/",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"api",
+						"messages",
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Send Message (testuser2 to conversation)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 201 Created\", function () {\r",
+							"    pm.response.to.have.status(201);\r",
+							"});\r",
+							"var jsonData = pm.response.json();\r",
+							"pm.expect(jsonData.id).to.exist;\r",
+							"pm.expect(jsonData.sender).to.eql(\"testuser2\");"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{accessTokenUser2}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n    \"conversation\": {{conversationId}},\r\n    \"content\": \"Hi brosef, this is testuser2 responding!\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseURL}}/api/messages/",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"api",
+						"messages",
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "List Conversations (testuser1)",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{accessTokenUser1}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/api/conversations/",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"api",
+						"conversations",
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Specific Conversation (testuser1)",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{accessTokenUser1}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/api/conversations/{{conversationId}}/",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"api",
+						"conversations",
+						"{{conversationId}}",
+						""
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "List Messages in Conversation (testuser1)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Status code is 200\", function () {\r",
+							"    pm.response.to.have.status(200);\r",
+							"});\r",
+							"var jsonData = pm.response.json();\r",
+							"pm.expect(jsonData.results).to.be.an('array');\r",
+							"pm.expect(jsonData.results.length).to.be.at.least(1); // Or check for 2 if both messages sent\r",
+							"pm.expect(jsonData.count).to.exist; // Pagination check"
+						],
+						"type": "text/javascript",
+						"packages": {}
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{accessTokenUser1}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/api/messages/?conversation={{conversationId}}",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"api",
+						"messages",
+						""
+					],
+					"query": [
+						{
+							"key": "conversation",
+							"value": "{{conversationId}}"
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

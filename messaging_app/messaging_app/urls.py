@@ -16,9 +16,23 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+    # TokenVerifyView, # Optional: if you want an endpoint to verify tokens
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('chats.urls')),
-    path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
+
+    # JWT Authentication endpoints
+    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # path('api/token/verify/', TokenVerifyView.as_view(), name='token_verify'), # Optional
+
+    # If you previously had DRF's login/logout views for browsable API:
+    # path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
+    # You might remove or keep this depending on whether you still want session-based browsable API login.
+    # If JWT is the primary method, users would typically get a token and use it via "Authorize" button in browsable API.
 ]
