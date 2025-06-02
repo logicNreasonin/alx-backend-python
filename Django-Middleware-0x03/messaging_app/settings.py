@@ -48,9 +48,14 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware', # request.user is set here
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+
+    'chats.middleware.RequestLoggingMiddleware',
+    'chats.middleware.RestrictAccessByTimeMiddleware',
+    'chats.middleware.RateLimitMessagesMiddleware',
+    'chats.middleware.RolePermissionMiddleware', # Add this line
 ]
 
 ROOT_URLCONF = 'messaging_app.urls'
@@ -175,3 +180,4 @@ SIMPLE_JWT = {
     'SLIDING_TOKEN_LIFETIME': timedelta(minutes=5), # Not used if not using sliding tokens
     'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1), # Not used if not using sliding tokens
 }
+
