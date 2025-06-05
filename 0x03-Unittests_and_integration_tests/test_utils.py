@@ -121,9 +121,12 @@ class TestMemoize(unittest.TestCase):
         """
         test_object = self.TestClass()
 
-        # Corrected line 124: Broken into multiple lines for readability and length
+        # Corrected the long line (original line 129) by breaking it down
+        # This is a common "black" or "autopep8" style formatting
         with patch.object(
-            test_object, 'a_method', return_value=42
+            test_object,
+            'a_method',
+            return_value=42,  # Added a comma here for consistent formatting if more args
         ) as mock_a_method:
             result1 = test_object.a_property
             result2 = test_object.a_property
@@ -135,4 +138,4 @@ class TestMemoize(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-# Added a newline character at the end of the file to fix W292
+# Ensure there is a newline character after this line ^
