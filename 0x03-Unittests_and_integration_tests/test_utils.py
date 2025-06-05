@@ -121,7 +121,10 @@ class TestMemoize(unittest.TestCase):
         """
         test_object = self.TestClass()
 
-        with patch.object(test_object, 'a_method', return_value=42) as mock_a_method:
+        # Corrected line 124: Broken into multiple lines for readability and length
+        with patch.object(
+            test_object, 'a_method', return_value=42
+        ) as mock_a_method:
             result1 = test_object.a_property
             result2 = test_object.a_property
 
@@ -132,3 +135,4 @@ class TestMemoize(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+# Added a newline character at the end of the file to fix W292
