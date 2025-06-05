@@ -31,10 +31,10 @@ class TestAccessNestedMap(unittest.TestCase):
         ({"a": {"b": 2}}, ("a", "b"), 2),
     ])
     def test_access_nested_map(
-            self,
-            nested_map: Mapping,
-            path: Sequence,
-            expected: Any
+        self,
+        nested_map: Mapping,
+        path: Sequence,
+        expected: Any
     ) -> None:
         """
         Tests `access_nested_map` for returning expected values.
@@ -47,10 +47,10 @@ class TestAccessNestedMap(unittest.TestCase):
         ({"a": 1}, ("a", "b"), "'b'")
     ])
     def test_access_nested_map_exception(
-            self,
-            nested_map: Mapping,
-            path: Sequence,
-            expected_message: str
+        self,
+        nested_map: Mapping,
+        path: Sequence,
+        expected_message: str
     ) -> None:
         """
         Tests that `access_nested_map` raises KeyError with expected message.
@@ -75,10 +75,10 @@ class TestGetJson(unittest.TestCase):
     ])
     @patch('utils.requests.get')
     def test_get_json(
-            self,
-            test_url: str,
-            test_payload: Dict,
-            mock_requests_get: Mock
+        self,
+        test_url: str,
+        test_payload: Dict,
+        mock_requests_get: Mock
     ) -> None:
         """
         Tests `get_json` ensuring `requests.get` is called correctly
