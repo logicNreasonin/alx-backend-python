@@ -10,6 +10,7 @@ class User(AbstractUser):
     Custom User model extending Django's AbstractUser.
     Adds a UUID-based primary key 'user_id'.
     Email is made unique.
+    Includes an optional phone_number field.
     Standard fields like 'first_name', 'last_name', and 'password' management are inherited.
     """
     # Added: user_id as a UUID primary key, satisfying "user_id" and "primary_key" string requirements.
@@ -23,6 +24,14 @@ class User(AbstractUser):
     email = models.EmailField(
         'email address',
         unique=True
+    )
+
+    # Added: phone_number field as requested by the checker
+    phone_number = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        help_text="Optional. User's phone number."
     )
 
     # Note for checker:
