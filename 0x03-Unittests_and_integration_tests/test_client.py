@@ -108,12 +108,12 @@ class TestGithubOrgClient(unittest.TestCase):
         ({}, "my_license", False),
         ({"license": {"no_key_field": "value"}}, "my_license", False)
     ])
-    def test_has_license(
-        self,
-        repo: Dict[str, Any],
-        license_key: str,
-        expected: bool
-    ) -> None:
+    # Corrected line: 'self' is now on the same line as 'def test_has_license('
+    def test_has_license(self,
+                         repo: Dict[str, Any],
+                         license_key: str,
+                         expected: bool
+                         ) -> None:
         """
         Tests the `GithubOrgClient.has_license` static method. (Task 7)
         """
