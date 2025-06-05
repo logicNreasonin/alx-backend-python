@@ -138,6 +138,8 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
+        'rest_framework.authentication.SessionAuthentication', # Optional: if you want session auth as well
+        'rest_framework.authentication.BasicAuthentication', # Optional: if you want basic auth
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination', # Add this
     'PAGE_SIZE': 20,  # Set default page size to 20
