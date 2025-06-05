@@ -108,7 +108,6 @@ class TestGithubOrgClient(unittest.TestCase):
         ({}, "my_license", False),
         ({"license": {"no_key_field": "value"}}, "my_license", False)
     ])
-    # Corrected line: 'self' is now on the same line as 'def test_has_license('
     def test_has_license(self,
                          repo: Dict[str, Any],
                          license_key: str,
@@ -121,19 +120,15 @@ class TestGithubOrgClient(unittest.TestCase):
                          expected)
 
 
-# Parameterize the whole class with fixtures from TEST_PAYLOAD
-# TEST_PAYLOAD is a list of tuples. Each tuple contains:
-# (org_payload, repos_payload, expected_repos, apache2_repos)
 @parameterized_class(
     ('org_payload', 'repos_payload', 'expected_repos', 'apache2_repos'),
-    TEST_PAYLOAD  # Unpacks the single tuple from TEST_PAYLOAD for the class
+    TEST_PAYLOAD
 )
 class TestIntegrationGithubOrgClient(unittest.TestCase):
     """
     Integration Test suite for `GithubOrgClient.public_repos`.
     Uses fixtures from `fixtures.TEST_PAYLOAD`. (Task 8)
     """
-    # Attributes will be populated by @parameterized_class
     org_payload: Dict
     repos_payload: List[Dict]
     expected_repos: List[str]
@@ -147,32 +142,18 @@ class TestIntegrationGithubOrgClient(unittest.TestCase):
         that returns different mock responses based on the URL being requested,
         using data from the class's fixture attributes.
         """
-        # The org name for TEST_PAYLOAD[0] fixture is "google".
-        # This is inferred from the structure of the URLs in the fixture data.
         cls.org_name_for_fixture = "google"
 
         def mock_requests_get_side_effect(url: str) -> Mock:
-            """
-            Side effect for mocked requests.get.
-            Returns a Mock response object configured with .json() method
-            returning fixture data based on the URL.
-            """
             mock_response = Mock()
-            # URL for fetching organization details
             expected_org_url = GithubOrgClient.ORG_URL.format(
                 org=cls.org_name_for_fixture
             )
-            # URL for fetching repositories, directly from the org_payload fixture
-            # cls.org_payload is {"repos_url": "https://api.github.com/orgs/google/repos"}
             expected_repos_url = cls.org_payload.get("repos_url")
 
             if url == expected_org_url:
-                # This means requests.get("https://api.github.com/orgs/google")
-                # should return cls.org_payload
                 mock_response.json.return_value = cls.org_payload
             elif url == expected_repos_url:
-                # This means requests.get("https://api.github.com/orgs/google/repos")
-                # should return cls.repos_payload
                 mock_response.json.return_value = cls.repos_payload
             else:
                 mock_response.status_code = 404
@@ -181,7 +162,8 @@ class TestIntegrationGithubOrgClient(unittest.TestCase):
                 }
             return mock_response
 
-        cls.get_patcher = patch('utils.requests.get',
+        # Modified line: Patch 'requests.get' directly
+        cls.get_patcher = patch('requests.get',
                                 side_effect=mock_requests_get_side_effect)
         cls.mock_requests_get = cls.get_patcher.start()
 
@@ -197,7 +179,6 @@ class TestIntegrationGithubOrgClient(unittest.TestCase):
         """
         Integration test for `public_repos` without license filtering.
         """
-        # Instantiate client with the org name derived for this fixture set
         org_client = GithubOrgClient(self.org_name_for_fixture)
         actual_repos = org_client.public_repos()
         self.assertEqual(actual_repos, self.expected_repos)
