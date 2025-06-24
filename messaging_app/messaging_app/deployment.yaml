@@ -1,0 +1,56 @@
+# messaging_app/deployment.yaml
+
+# -------------------- Deployment --------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: django-messaging-app-deployment # Name of the Deployment object
+  labels:
+    app: django-messaging-app          # Label to identify resources related to this app
+spec:
+  replicas: 1 # Start with one instance of the app
+  selector:
+    matchLabels:
+      app: django-messaging-app # This must match the labels in the Pod template below
+  template: # This is the Pod template
+    metadata:
+      labels:
+        app: django-messaging-app # Labels applied to each Pod created by this Deployment
+    spec:
+      containers:
+      - name: django-app-container # Name of the container within the Pod
+        # IMPORTANT: Replace with your actual Docker image name and tag!
+        # If the image is local and minikube uses your host's docker daemon,
+        # ensure 'imagePullPolicy: IfNotPresent' or 'Never' is set if the image isn't pushed to a registry.
+        # For images on Docker Hub or another registry, 'imagePullPolicy: Always' (default if tag is :latest)
+        # or 'IfNotPresent' is fine.
+        image: your-username/django-messaging-app:v1.0 # <<--- REPLACE THIS WITH YOUR ACTUAL IMAGE
+        imagePullPolicy: IfNotPresent # Use 'Always' if pulling from remote & image might change for the same tag
+                                     # Use 'IfNotPresent' or 'Never' for local images not in a registry
+        ports:
+        - containerPort: 8000 # The port your Django app listens on INSIDE the container
+        # Optional: Add environment variables if your app needs them for basic startup.
+        # For production or sensitive data, use ConfigMaps and Secrets.
+        # env:
+        # - name: DJANGO_SETTINGS_MODULE
+        #   value: "your_project_name.settings" # Replace your_project_name
+        # - name: DEBUG
+        #   value: "True" # Usually True for dev, False for prod (managed via ConfigMap ideally)
+
+---
+# -------------------- Service --------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: django-messaging-app-service # Name of the Service object
+  labels:
+    app: django-messaging-app
+spec:
+  type: ClusterIP # Exposes the service on an internal IP in the cluster.
+  selector:
+    app: django-messaging-app # This must match the labels of the Pods you want this service to target
+  ports:
+  - protocol: TCP
+    port: 8000       # The port the Service will listen on (within the cluster).
+                     # Other pods can reach this service at django-messaging-app-service:8000
+    targetPort: 8000 # The port on the Pods (containerPort of django-app-container) to forward traffic to

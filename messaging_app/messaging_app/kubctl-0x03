@@ -1,0 +1,213 @@
+#!/bin/bash
+
+# Script to perform and monitor a rolling update for the Django app.
+
+BLUE_DEPLOYMENT_FILE="blue_deployment.yaml"
+DEPLOYMENT_NAME="django-app-blue-deployment" # Name of the deployment in blue_deployment.yaml
+# Assuming your service is named 'django-app-service' and selects 'color: blue'
+# If you used a different service from kubeservice.yaml that points to blue, use that.
+SERVICE_NAME="django-app-service"
+# The service definition (kubeservice.yaml) should have:
+# selector:
+#   app: django-messaging-app
+#   color: blue
+# And the pods in blue_deployment.yaml should have these labels.
+
+LOCAL_CURL_PORT=8081 # Local port for port-forwarding to the service
+CURL_TARGET_PATH="/" # Path to curl on your application (e.g., "/", "/health", "/api/ping")
+CURL_INTERVAL=0.5 # Seconds between curl requests
+CURL_TIMEOUT=2    # Seconds for curl connection timeout
+CURL_LOG_FILE="curl_rolling_update_test.log"
+
+PORT_FORWARD_PID=""
+CURL_LOOP_PID=""
+
+# --- Helper Functions ---
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+start_port_forward() {
+  echo "INFO: Attempting to set up port-forward from localhost:$LOCAL_CURL_PORT to service '$SERVICE_NAME' port 80..."
+  # Check if service exists
+  if ! kubectl get service "$SERVICE_NAME" > /dev/null 2>&1; then
+      echo "ERROR: Service '$SERVICE_NAME' not found! This service should select pods with 'color: blue'."
+      echo "       Ensure '$SERVICE_NAME' is defined (e.g. in kubeservice.yaml) and its selector targets the blue deployment."
+      return 1
+  fi
+  
+  # Check service selector - this is a bit advanced for a simple script but good for diagnostics
+  SVC_SELECTOR_COLOR=$(kubectl get svc "$SERVICE_NAME" -o=jsonpath='{.spec.selector.color}' 2>/dev/null)
+  if [ "$SVC_SELECTOR_COLOR" != "blue" ]; then
+      echo "WARNING: Service '$SERVICE_NAME' does not appear to be selecting 'color: blue' (current: '$SVC_SELECTOR_COLOR')."
+      echo "         The curl test might not reflect the rolling update of '$DEPLOYMENT_NAME' accurately."
+      echo "         You might need to patch the service: kubectl patch service $SERVICE_NAME -p '{\"spec\": {\"selector\": {\"app\": \"django-messaging-app\", \"color\": \"blue\"}}}'"
+      # Optionally, exit here if strictness is required. For now, just warn.
+  fi
+
+  # Port 80 on service maps to targetPort 8000 on pod
+  kubectl port-forward service/"$SERVICE_NAME" "$LOCAL_CURL_PORT":80 &
+  PORT_FORWARD_PID=$!
+  echo "INFO: Port-forward process started with PID: $PORT_FORWARD_PID. Waiting a few seconds for it to establish..."
+  sleep 8 # Allow port-forward to establish
+
+  # Verify port-forward is active
+  if ! curl --output /dev/null --silent --head --fail --max-time "$CURL_TIMEOUT" "http://localhost:$LOCAL_CURL_PORT$CURL_TARGET_PATH"; then
+    echo "ERROR: Failed to establish or connect via port-forward to service $SERVICE_NAME at http://localhost:$LOCAL_CURL_PORT$CURL_TARGET_PATH."
+    kill "$PORT_FORWARD_PID" 2>/dev/null
+    PORT_FORWARD_PID=""
+    return 1
+  fi
+  echo "INFO: Port-forward to service '$SERVICE_NAME' established on port $LOCAL_CURL_PORT."
+  return 0
+}
+
+start_curl_loop() {
+  echo "INFO: Starting continuous curl test. Output will be in '$CURL_LOG_FILE'."
+  echo "Timestamp,HTTP_Status,Error" > "$CURL_LOG_FILE" # CSV Header
+  (
+    # This subshell runs the loop
+    while true; do
+      TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S.%3N")
+      HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time "$CURL_TIMEOUT" "http://localhost:$LOCAL_CURL_PORT$CURL_TARGET_PATH")
+      CURL_EXIT_CODE=$?
+      if [ $CURL_EXIT_CODE -ne 0 ]; then
+        # Check for common curl errors
+        ERROR_MSG=""
+        case $CURL_EXIT_CODE in
+          6) ERROR_MSG="Could not resolve host";;
+          7) ERROR_MSG="Failed to connect to host";;
+          28) ERROR_MSG="Operation timed out";;
+          *) ERROR_MSG="Curl error code $CURL_EXIT_CODE";;
+        esac
+        echo "$TIMESTAMP,,$ERROR_MSG" >> "../$CURL_LOG_FILE" # relative path from where subshell might run
+      else
+        echo "$TIMESTAMP,$HTTP_STATUS," >> "../$CURL_LOG_FILE"
+      fi
+      sleep "$CURL_INTERVAL"
+    done
+  ) &
+  CURL_LOOP_PID=$!
+  echo "INFO: Curl loop process started with PID: $CURL_LOOP_PID."
+}
+
+stop_background_processes() {
+  echo "INFO: Cleaning up background processes..."
+  if [ -n "$CURL_LOOP_PID" ] && ps -p "$CURL_LOOP_PID" > /dev/null; then
+    echo "INFO: Stopping curl loop (PID: $CURL_LOOP_PID)..."
+    kill "$CURL_LOOP_PID"
+    wait "$CURL_LOOP_PID" 2>/dev/null
+  fi
+  if [ -n "$PORT_FORWARD_PID" ] && ps -p "$PORT_FORWARD_PID" > /dev/null; then
+    echo "INFO: Stopping port-forward (PID: $PORT_FORWARD_PID)..."
+    kill "$PORT_FORWARD_PID"
+    wait "$PORT_FORWARD_PID" 2>/dev/null
+  fi
+  echo "INFO: Cleanup complete."
+}
+
+# Trap SIGINT (Ctrl+C) and SIGTERM to clean up
+trap stop_background_processes SIGINT SIGTERM EXIT
+
+# --- Main Script ---
+echo "-----------------------------------------------------"
+echo "INFO: Rolling Update Script Started"
+echo "-----------------------------------------------------"
+
+# --- Prerequisite check ---
+if ! command_exists kubectl; then echo "ERROR: kubectl not found."; exit 1; fi
+if ! command_exists curl; then echo "ERROR: curl not found."; exit 1; fi
+if [ ! -f "$BLUE_DEPLOYMENT_FILE" ]; then
+  echo "ERROR: Deployment file '$BLUE_DEPLOYMENT_FILE' not found."
+  echo "       Make sure you have modified it with the new image version."
+  exit 1
+fi
+echo "INFO: Prerequisites met. Using deployment file '$BLUE_DEPLOYMENT_FILE'."
+
+# --- Start Port Forwarding ---
+if ! start_port_forward; then
+  echo "ERROR: Could not start port-forwarding. Aborting script."
+  exit 1
+fi
+
+# --- Start Curl Loop ---
+start_curl_loop
+
+# --- Apply Updated Deployment ---
+echo ""
+echo ">>> STEP 1: Applying updated deployment from '$BLUE_DEPLOYMENT_FILE' to trigger rolling update..."
+kubectl apply -f "$BLUE_DEPLOYMENT_FILE"
+if [ $? -ne 0 ]; then
+  echo "ERROR: kubectl apply failed for '$BLUE_DEPLOYMENT_FILE'. Check the file and cluster status."
+  exit 1 # stop_background_processes will be called by EXIT trap
+fi
+
+# --- Monitor Rollout Status ---
+echo ""
+echo ">>> STEP 2: Monitoring rolling update progress for deployment '$DEPLOYMENT_NAME'..."
+echo "            (Continuous curl test is running in the background. See '$CURL_LOG_FILE')"
+if ! kubectl rollout status deployment/"$DEPLOYMENT_NAME" --timeout=300s; then # Increased timeout
+  echo "WARNING: Rollout for deployment '$DEPLOYMENT_NAME' did not complete successfully or timed out."
+  echo "         Check 'kubectl describe deployment $DEPLOYMENT_NAME' and pod logs."
+else
+  echo "INFO: Rollout for deployment '$DEPLOYMENT_NAME' completed successfully."
+fi
+
+# Stop background processes now that rollout status is complete or timed out
+stop_background_processes # This will be called again on EXIT but calling it here is fine
+trap - SIGINT SIGTERM EXIT # Clear trap as we are done with background processes
+
+# --- Analyze Curl Results ---
+echo ""
+echo ">>> STEP 3: Analyzing curl test results from '$CURL_LOG_FILE'..."
+REQUEST_COUNT=$(tail -n +2 "$CURL_LOG_FILE" | wc -l)
+SUCCESS_COUNT=$(grep -cE ",(200|2..|3..)," "$CURL_LOG_FILE") # Count 2xx and 3xx as success for reachability
+ERROR_ENTRIES=$(grep -vE ",(200|2..|3..)," "$CURL_LOG_FILE" | tail -n +2) # Exclude header and successes
+FAILURE_COUNT=$(echo "$ERROR_ENTRIES" | wc -l | awk '{print $1}') # awk to trim whitespace
+
+echo "Total requests sent: $REQUEST_COUNT"
+echo "Successful requests (HTTP 2xx/3xx): $SUCCESS_COUNT"
+echo "Failed requests (or non-2xx/3xx): $FAILURE_COUNT"
+
+if [ "$FAILURE_COUNT" -gt 0 ]; then
+  echo "WARNING: Some requests failed during the rolling update. Details of failures:"
+  echo "$ERROR_ENTRIES"
+  echo "Check '$CURL_LOG_FILE' for full details."
+else
+  echo "INFO: All logged requests were successful (HTTP 2xx/3xx) during the rolling update."
+fi
+
+
+# --- Verify Pods ---
+echo ""
+echo ">>> STEP 4: Verifying current pods for deployment '$DEPLOYMENT_NAME'..."
+kubectl get pods -l app=django-messaging-app,color=blue -o wide # Assuming blue_deployment uses these labels
+echo ""
+echo "INFO: Check the 'IMAGE' column for the new version and 'STATUS' (should be Running)."
+echo "      You can get more details with 'kubectl describe deployment $DEPLOYMENT_NAME'"
+echo "      and 'kubectl describe pod <pod-name>'."
+
+# Get image of a running pod from the deployment to verify
+echo ""
+echo "INFO: Verifying image of a running pod from deployment '$DEPLOYMENT_NAME':"
+# Find a pod that is part of the deployment and is running
+POD_TO_CHECK=$(kubectl get pods -l app=django-messaging-app,color=blue --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+if [ -n "$POD_TO_CHECK" ]; then
+  CURRENT_IMAGE=$(kubectl get pod "$POD_TO_CHECK" -o jsonpath='{.spec.containers[0].image}' 2>/dev/null)
+  echo "Image of pod '$POD_TO_CHECK': $CURRENT_IMAGE"
+  # You should compare $CURRENT_IMAGE with the image version you set in blue_deployment.yaml
+  EXPECTED_IMAGE=$(grep 'image:' "$BLUE_DEPLOYMENT_FILE" | head -n 1 | awk '{print $2}')
+  if [ "$CURRENT_IMAGE" == "$EXPECTED_IMAGE" ]; then
+    echo "INFO: Pod image matches the version specified in '$BLUE_DEPLOYMENT_FILE'."
+  else
+    echo "WARNING: Pod image '$CURRENT_IMAGE' does NOT match expected image '$EXPECTED_IMAGE' from '$BLUE_DEPLOYMENT_FILE'."
+  fi
+else
+  echo "WARNING: Could not find a running pod for deployment '$DEPLOYMENT_NAME' to verify its image."
+fi
+
+
+echo ""
+echo "-----------------------------------------------------"
+echo "SCRIPT COMPLETED."
+echo "-----------------------------------------------------"

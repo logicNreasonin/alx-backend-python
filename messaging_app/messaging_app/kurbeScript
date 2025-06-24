@@ -1,0 +1,74 @@
+#!/bin/bash
+
+# Script to start a Minikube cluster, verify its status, and list pods.
+
+echo "-----------------------------------------------------"
+echo "INFO: Ensuring Minikube is installed..."
+echo "-----------------------------------------------------"
+if ! command -v minikube &> /dev/null
+then
+    echo "ERROR: minikube could not be found. Please install minikube first."
+    echo "Visit: https://minikube.sigs.k8s.io/docs/start/"
+    exit 1
+fi
+echo "INFO: Minikube found."
+
+echo ""
+echo "-----------------------------------------------------"
+echo "INFO: Attempting to start Minikube cluster..."
+echo "      This might take a few minutes if it's the first time or if images need downloading."
+echo "-----------------------------------------------------"
+# Attempt to start minikube.
+# If it's already running, this command usually exits gracefully or informs the user.
+# You might need to specify a driver depending on your setup, e.g., --driver=docker or --driver=kvm2
+# For simplicity, we'll let minikube choose its default or use the pre-configured one.
+minikube start
+if [ $? -ne 0 ]; then
+    echo "ERROR: Failed to start Minikube cluster."
+    echo "Common issues:"
+    echo "  - Virtualization not enabled in BIOS."
+    echo "  - Docker not running (if using Docker driver)."
+    echo "  - Insufficient resources (CPU/memory)."
+    echo "  - Conflicting virtualization software."
+    echo "Try running 'minikube start --alsologtostderr -v=7' for more detailed logs."
+    exit 1
+fi
+echo "INFO: Minikube cluster started (or was already running)."
+
+# Optional: Wait a few seconds for all services to be fully up, especially on slower machines or first start
+echo ""
+echo "INFO: Waiting a few seconds for cluster services to initialize..."
+sleep 10
+
+echo ""
+echo "-----------------------------------------------------"
+echo "INFO: Verifying Kubernetes cluster status using 'kubectl cluster-info'..."
+echo "-----------------------------------------------------"
+# kubectl cluster-info will show the master and services addresses
+kubectl cluster-info
+if [ $? -ne 0 ]; then
+    echo "ERROR: 'kubectl cluster-info' failed. The cluster might not be ready or kubectl is not configured correctly."
+    echo "Try running 'minikube kubectl -- "cluster-info"' if your kubectl is not automatically configured."
+    exit 1
+fi
+
+echo ""
+echo "-----------------------------------------------------"
+echo "INFO: Retrieving available pods (from all namespaces)..."
+echo "-----------------------------------------------------"
+# kubectl get pods --all-namespaces will list pods in all namespaces.
+# Initially, these will mostly be system pods in the 'kube-system' namespace.
+kubectl get pods --all-namespaces
+if [ $? -ne 0 ]; then
+    echo "ERROR: 'kubectl get pods' failed. The cluster might not be fully operational."
+    exit 1
+fi
+
+echo ""
+echo "-----------------------------------------------------"
+echo "SCRIPT COMPLETED SUCCESSFULLY!"
+echo "If you see 'Kubernetes control plane is running...' and a list of pods (mostly in kube-system namespace),"
+echo "then your local Kubernetes cluster is likely set up and running correctly."
+echo "-----------------------------------------------------"
+
+exit 0

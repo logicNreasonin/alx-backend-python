@@ -1,0 +1,22 @@
+# messaging_app/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: django-messaging-ingress
+  annotations:
+    # This annotation tells Nginx to rewrite the path.
+    # If the request is for /django-app/some/path, it will be forwarded
+    # to your service as /some/path.
+    # If your app root is at / and you want /django-app to go to /, use "/".
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /django-app # External path that users will access
+        pathType: Prefix  # Matches any path starting with /django-app
+        backend:
+          service:
+            name: django-messaging-app-service # Name of your Django app's Service
+            port:
+              number: 8000 # The port your Service listens on

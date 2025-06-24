@@ -1,0 +1,40 @@
+# messaging_app/blue_deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: django-app-blue-deployment
+  labels:
+    app: django-messaging-app     # General app identifier
+    version: blue                 # Identifies this as the blue version deployment
+spec:
+  replicas: 2 # Number of desired pods for blue
+  selector:
+    matchLabels:
+      app: django-messaging-app
+      version: blue # Selects pods belonging to this blue deployment
+  template: # Pod template
+    metadata:
+      labels:
+        app: django-messaging-app # General app label for the pod
+        version: blue             # Pod-level version label
+        color: blue               # CRITICAL: Label for service selection
+    spec:
+      cspec:
+      containers:
+      - name: django-app-container
+        image: your-username/django-messaging-app:v2.0 # <<< NEW VERSION
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000 # Port your Django app listens on
+        readinessProbe: # Basic probe, customize path if needed
+          httpGet:
+            path: / # Assuming root path is a valid health check
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 20

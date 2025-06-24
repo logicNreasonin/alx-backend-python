@@ -1,0 +1,18 @@
+# messaging_app/kubeservice.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: django-app-service # This is the stable service name your Ingress (if used) or users point to
+  labels:
+    app: django-messaging-app # General app label for the service
+spec:
+  type: ClusterIP # Use ClusterIP if accessed via Ingress, or NodePort/LoadBalancer for direct access
+  ports:
+  - port: 80 # Port the service itself listens on
+    targetPort: 8000 # Port on the Pods to forward traffic to
+    protocol: TCP
+    name: http
+  selector:
+    # IMPORTANT: Initially points to BLUE pods
+    app: django-messaging-app # Must match 'app' label on pods
+    color: blue               # Must match 'color: blue' label on BLUE pods

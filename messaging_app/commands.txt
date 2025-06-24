@@ -1,0 +1,20 @@
+# messaging_app/commands.txt
+
+# 1. Enable the Nginx Ingress controller addon in Minikube
+# (Run this once per Minikube cluster if not already enabled)
+minikube addons enable ingress
+
+# 2. Verify Ingress controller pods are running (optional, for checking)
+# kubectl get pods -n ingress-nginx
+
+# 3. Apply the Ingress resource configuration
+kubectl apply -f ingress.yaml
+
+# 4. Check the status of the Ingress resource (optional, for checking)
+# kubectl get ingress django-messaging-ingress
+
+# 5. Get the Minikube IP to access the application
+# minikube ip
+# Then access your app at http://<MINIKUBE_IP>/django-app/
+# (If your Ingress controller service is of type LoadBalancer and minikube tunnel is running,
+# you might get an external IP directly from `kubectl get ingress`)

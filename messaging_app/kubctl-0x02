@@ -1,0 +1,133 @@
+#!/bin/bash
+
+# Script for Blue-Green Deployment of Django Messaging App
+
+BLUE_DEPLOYMENT_FILE="blue_deployment.yaml"
+GREEN_DEPLOYMENT_FILE="green_deployment.yaml"
+SERVICE_FILE="kubeservice.yaml"
+
+# --- Helper: Check if a command exists ---
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+# --- Helper: Get service name from YAML ---
+get_service_name() {
+  local yaml_file="$1"
+  if [ -f "$yaml_file" ]; then
+    grep -m 1 'name:' "$yaml_file" | awk '{print $2}'
+  else
+    echo "django-app-service" # Default if parsing fails
+  fi
+}
+
+SERVICE_NAME=$(get_service_name "$SERVICE_FILE")
+
+echo "-----------------------------------------------------"
+echo "INFO: Blue-Green Deployment Script Started"
+echo "-----------------------------------------------------"
+
+# --- Prerequisite check ---
+if ! command_exists kubectl; then
+  echo "ERROR: kubectl not found. Please install it."
+  exit 1
+fi
+
+for f in "$BLUE_DEPLOYMENT_FILE" "$GREEN_DEPLOYMENT_FILE" "$SERVICE_FILE"; do
+  if [ ! -f "$f" ]; then
+    echo "ERROR: Required YAML file '$f' not found in current directory ($(pwd))."
+    exit 1
+  fi
+done
+echo "INFO: All required YAML files found."
+
+# --- STEP 1: Deploy BLUE version and Service (pointing to BLUE) ---
+echo ""
+echo ">>> STEP 1: Deploying BLUE version (if not already deployed) and ensuring service points to BLUE."
+kubectl apply -f "$BLUE_DEPLOYMENT_FILE"
+echo "INFO: Waiting for BLUE deployment (django-app-blue-deployment) rollout to complete..."
+kubectl rollout status deployment/django-app-blue-deployment --timeout=120s
+if [ $? -ne 0 ]; then
+  echo "WARNING: BLUE deployment rollout may have issues. Check 'kubectl get pods -l version=blue'."
+fi
+
+# Ensure service points to BLUE
+# The service file itself has color:blue, so applying it ensures the state.
+# Forcing an update if it already exists with a different selector:
+echo "INFO: Applying service definition from '$SERVICE_FILE' (should select color: blue)."
+kubectl apply -f "$SERVICE_FILE"
+echo "INFO: Verifying service '$SERVICE_NAME' selects 'color: blue'..."
+CURRENT_SELECTOR=$(kubectl get svc "$SERVICE_NAME" -o=jsonpath='{.spec.selector.color}' 2>/dev/null)
+if [ "$CURRENT_SELECTOR" == "blue" ]; then
+    echo "INFO: Service '$SERVICE_NAME' correctly selecting 'color: blue'."
+elif [ -z "$CURRENT_SELECTOR" ]; then
+    echo "WARNING: Service '$SERVICE_NAME' not found or selector not set as expected. Check manually."
+else
+    echo "WARNING: Service '$SERVICE_NAME' currently selecting 'color: $CURRENT_SELECTOR'. Attempting to patch to 'blue'."
+    kubectl patch service "$SERVICE_NAME" -p '{"spec": {"selector": {"app": "django-messaging-app", "color": "blue"}}}'
+    sleep 2
+    kubectl get svc "$SERVICE_NAME" -o=jsonpath='{.spec.selector}' && echo ""
+fi
+echo "INFO: BLUE version should be live and serving traffic via service '$SERVICE_NAME'."
+
+echo ""
+echo "Press [Enter] to deploy the GREEN version (it will not receive live traffic yet)..."
+read -r
+
+# --- STEP 2: Deploy GREEN version ---
+echo ""
+echo ">>> STEP 2: Deploying GREEN version (django-app-green-deployment)."
+kubectl apply -f "$GREEN_DEPLOYMENT_FILE"
+echo "INFO: Waiting for GREEN deployment rollout to complete..."
+kubectl rollout status deployment/django-app-green-deployment --timeout=180s # Allow more time for potential new image pull
+if [ $? -ne 0 ]; then
+  echo "WARNING: GREEN deployment rollout may have issues. Check 'kubectl get pods -l version=green'."
+fi
+
+# --- STEP 3: Check logs of the GREEN version for errors ---
+echo ""
+echo ">>> STEP 3: Checking logs for the new GREEN version pods."
+GREEN_PODS=$(kubectl get pods -l app=django-messaging-app,version=green -o jsonpath='{.items[*].metadata.name}')
+
+if [ -z "$GREEN_PODS" ]; then
+  echo "WARNING: No GREEN pods found. Cannot check logs."
+else
+  echo "INFO: Fetching logs from GREEN pods (django-app-green-deployment):"
+  for POD_NAME in $GREEN_PODS; do
+    echo "--- Logs for $POD_NAME (last 30 lines) ---"
+    kubectl logs "$POD_NAME" --tail=30 || echo "WARNING: Could not retrieve logs for $POD_NAME."
+    # Basic error check (can be made more sophisticated)
+    if kubectl logs "$POD_NAME" --tail=100 | grep -E -q -i "(error|exception|fail|critical|traceback)"; then
+        echo "!! POTENTIAL ERROR DETECTED IN LOGS FOR $POD_NAME !!"
+    else
+        echo "INFO: No obvious error keywords in recent logs for $POD_NAME."
+    fi
+    echo "------------------------------------------"
+  done
+  echo "INFO: Log checking for GREEN pods complete. Review manually for any application-specific errors."
+fi
+
+# --- STEP 4: Instructions for Manual Traffic Switch ---
+echo ""
+echo ">>> STEP 4: Ready to Switch Traffic to GREEN."
+echo "--------------------------------------------------------------------------------------"
+echo " Both BLUE and GREEN deployments are running."
+echo " Service '$SERVICE_NAME' is currently directing traffic to BLUE pods (selector 'color: blue')."
+echo ""
+echo " TO SWITCH TRAFFIC TO GREEN:"
+echo "   Run: kubectl patch service $SERVICE_NAME -p '{\"spec\": {\"selector\": {\"app\": \"django-messaging-app\", \"color\": \"green\"}}}'"
+echo "   Verify: Access your application. It should now be served by the GREEN version."
+echo "           Check service selector: kubectl get svc $SERVICE_NAME -o=jsonpath='{.spec.selector}'"
+echo ""
+echo " IF GREEN VERSION HAS ISSUES (ROLLBACK):"
+echo "   Run: kubectl patch service $SERVICE_NAME -p '{\"spec\": {\"selector\": {\"app\": \"django-messaging-app\", \"color\": \"blue\"}}}'"
+echo "   This will switch traffic back to the BLUE version immediately."
+echo ""
+echo " ONCE GREEN IS CONFIRMED STABLE:"
+echo "   You can scale down or delete the BLUE deployment:"
+echo "   Scale down: kubectl scale deployment django-app-blue-deployment --replicas=0"
+echo "   Delete:     kubectl delete deployment django-app-blue-deployment"
+echo "--------------------------------------------------------------------------------------"
+
+echo ""
+echo "INFO: Script finished. Manual steps are required to switch traffic."

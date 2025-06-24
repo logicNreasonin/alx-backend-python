@@ -1,0 +1,39 @@
+# messaging_app/green_deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: django-app-green-deployment
+  labels:
+    app: django-messaging-app   # General app identifier
+    version: green                # Identifies this as the green version deployment
+spec:
+  replicas: 2 # Number of desired pods for green
+  selector:
+    matchLabels:
+      app: django-messaging-app
+      version: green # Selects pods belonging to this green deployment
+  template: # Pod template
+    metadata:
+      labels:
+        app: django-messaging-app # General app label for the pod
+        version: green            # Pod-level version label
+        color: green              # CRITICAL: Label for service selection
+    spec:
+      containers:
+      - name: django-app-container
+        image: your-username/django-messaging-app:v2.0 # <<< YOUR GREEN VERSION IMAGE
+        imagePullPolicy: IfNotPresent # Or 'Always' if you update the same tag in registry
+        ports:
+        - containerPort: 8000 # Port your Django app listens on
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 20

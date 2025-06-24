@@ -1,0 +1,194 @@
+#!/bin/bash
+
+# Script to scale the Django app, load test, and monitor resources.
+
+# --- Configuration ---
+DEPLOYMENT_NAME="django-messaging-app-deployment"
+SERVICE_NAME="django-messaging-app-service"
+APP_LABEL="django-messaging-app" # The label used in your deployment.yaml (e.g., app: django-messaging-app)
+TARGET_REPLICAS=3
+LOAD_TEST_LOCAL_PORT=8080 # Local port for port-forwarding to the service
+WRK_THREADS=2
+WRK_CONNECTIONS=50
+WRK_DURATION="10s" # e.g., 10s, 1m
+
+# --- Helper Functions ---
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+cleanup_port_forward() {
+  if [ -n "$PORT_FORWARD_PID" ] && ps -p "$PORT_FORWARD_PID" > /dev/null; then
+    echo "INFO: Cleaning up port-forward process (PID: $PORT_FORWARD_PID)..."
+    kill "$PORT_FORWARD_PID"
+    wait "$PORT_FORWARD_PID" 2>/dev/null
+    echo "INFO: Port-forward stopped."
+  fi
+}
+
+# Trap SIGINT (Ctrl+C) and SIGTERM to clean up port-forward
+trap cleanup_port_forward SIGINT SIGTERM
+
+# --- Main Script ---
+
+echo "-----------------------------------------------------"
+echo "INFO: 1. Checking prerequisites..."
+echo "-----------------------------------------------------"
+
+if ! command_exists kubectl; then
+  echo "ERROR: kubectl not found. Please ensure it's installed and in your PATH."
+  exit 1
+fi
+
+if ! command_exists minikube; then
+  echo "ERROR: minikube not found. Please ensure it's installed and in your PATH."
+  exit 1
+fi
+
+# Check if minikube cluster is running
+if ! minikube status &> /dev/null || ! minikube status | grep -E "(host|controlplane|kubelet): Running" > /dev/null; then
+    echo "ERROR: Minikube cluster is not running or not fully ready. Please start it with 'minikube start'."
+    exit 1
+fi
+echo "INFO: Minikube and kubectl found, and Minikube seems to be running."
+
+WRK_INSTALLED=false
+if command_exists wrk; then
+  WRK_INSTALLED=true
+  echo "INFO: wrk found."
+else
+  echo "WARNING: wrk command not found. Load testing step will be skipped."
+  echo "         Please install wrk (e.g., 'sudo apt-get install wrk' or 'brew install wrk')."
+fi
+
+echo ""
+echo "-----------------------------------------------------"
+echo "INFO: 2. Ensuring metrics-server addon is enabled..."
+echo "-----------------------------------------------------"
+METRICS_SERVER_READY=false
+# Check if metrics-server is enabled by looking for its deployment
+if kubectl get deployment metrics-server -n kube-system &> /dev/null; then
+  echo "INFO: metrics-server deployment found in kube-system."
+  # Check if it's ready
+  if kubectl wait --for=condition=available deployment/metrics-server -n kube-system --timeout=30s &> /dev/null; then
+    echo "INFO: metrics-server is enabled and appears ready."
+    METRICS_SERVER_READY=true
+  else
+    echo "WARNING: metrics-server deployment is present but not ready. 'kubectl top' might fail or show old data."
+  fi
+else
+  echo "INFO: metrics-server not found or not enabled. Attempting to enable it..."
+  minikube addons enable metrics-server
+  if [ $? -ne 0 ]; then
+    echo "WARNING: Failed to enable metrics-server addon. 'kubectl top' commands will likely fail."
+  else
+    echo "INFO: metrics-server enabled. Waiting for it to become ready (this can take a minute or two)..."
+    # Wait for the metrics-server deployment to become available
+    if kubectl wait --for=condition=available deployment/metrics-server -n kube-system --timeout=120s; then
+        echo "INFO: metrics-server is now ready."
+        METRICS_SERVER_READY=true
+    else
+        echo "WARNING: metrics-server was enabled but did not become ready in time. 'kubectl top' might fail."
+    fi
+  fi
+fi
+
+echo ""
+echo "-----------------------------------------------------"
+echo "INFO: 3. Scaling deployment '$DEPLOYMENT_NAME' to $TARGET_REPLICAS replicas..."
+echo "-----------------------------------------------------"
+kubectl scale deployment "$DEPLOYMENT_NAME" --replicas="$TARGET_REPLICAS"
+if [ $? -ne 0 ]; then
+  echo "ERROR: Failed to scale deployment. Does the deployment '$DEPLOYMENT_NAME' exist?"
+  echo "Current deployments:"
+  kubectl get deployments
+  exit 1
+fi
+echo "INFO: Scale command issued. Waiting for pods to update..."
+# Wait for the deployment to complete scaling
+if ! kubectl rollout status deployment/"$DEPLOYMENT_NAME" --timeout=120s; then
+    echo "WARNING: Deployment rollout did not complete successfully. Check pod statuses."
+fi
+
+
+echo ""
+echo "-----------------------------------------------------"
+echo "INFO: 4. Verifying pods for app label '$APP_LABEL'..."
+echo "-----------------------------------------------------"
+kubectl get pods -l app="$APP_LABEL" -o wide
+echo "INFO: Check if $TARGET_REPLICAS pods are in 'Running' state."
+echo "      (It might take a short while for all pods to become ready after scaling)."
+sleep 5 # Brief pause to allow states to settle for next steps
+
+if [ "$WRK_INSTALLED" = true ]; then
+  echo ""
+  echo "-----------------------------------------------------"
+  echo "INFO: 5. Performing load testing with wrk..."
+  echo "-----------------------------------------------------"
+
+  echo "INFO: Attempting to set up port-forward from localhost:$LOAD_TEST_LOCAL_PORT to service '$SERVICE_NAME' port 8000..."
+  # Ensure service exists
+  if ! kubectl get service "$SERVICE_NAME" &> /dev/null; then
+    echo "ERROR: Service '$SERVICE_NAME' not found. Cannot perform load test."
+    echo "       Load testing will be skipped."
+  else
+    kubectl port-forward service/"$SERVICE_NAME" "$LOAD_TEST_LOCAL_PORT":8000 &
+    PORT_FORWARD_PID=$!
+    echo "INFO: Port-forward process started with PID: $PORT_FORWARD_PID. Waiting for it to establish..."
+    sleep 8 # Allow port-forward to establish
+
+    # Check if port-forward is active by trying to connect
+    SERVICE_URL="http://localhost:$LOAD_TEST_LOCAL_PORT"
+    if ! curl --output /dev/null --silent --head --fail "$SERVICE_URL"; then
+      echo "ERROR: Failed to establish or connect via port-forward to service $SERVICE_NAME at $SERVICE_URL."
+      echo "       Load testing will be skipped. Common issues: service not pointing to ready pods, or port $LOAD_TEST_LOCAL_PORT already in use."
+      cleanup_port_forward # Kill the potentially failed port-forward process
+    else
+      echo "INFO: Service accessible at $SERVICE_URL for load testing."
+      echo "INFO: Performing load test: $WRK_THREADS threads, $WRK_CONNECTIONS connections, $WRK_DURATION duration."
+      # Assuming the app responds at the root path "/".
+      # If your app has a specific health or API endpoint, change "/" in "$SERVICE_URL/" accordingly.
+      wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"$WRK_DURATION" "$SERVICE_URL/"
+      if [ $? -ne 0 ]; then
+        echo "WARNING: wrk command finished with an error. The service might not be responding correctly under load or the URL path is incorrect."
+      fi
+      cleanup_port_forward # Clean up the successful port-forward
+    fi
+  fi
+else
+  echo ""
+  echo "-----------------------------------------------------"
+  echo "INFO: 5. Skipping load testing (wrk not installed)."
+  echo "-----------------------------------------------------"
+fi
+
+
+if [ "$METRICS_SERVER_READY" = true ]; then
+  echo ""
+  echo "-----------------------------------------------------"
+  echo "INFO: 6. Monitoring resource usage (kubectl top)..."
+  echo "      (Note: Metrics might take a few minutes to fully populate after changes or enabling metrics-server)"
+  echo "-----------------------------------------------------"
+  echo "== Top Pods (for app: $APP_LABEL) =="
+  kubectl top pods -l app="$APP_LABEL" --no-headers
+  if [ $? -ne 0 ]; then
+    echo "WARNING: 'kubectl top pods' command encountered an issue. Metrics might not be available yet."
+  fi
+
+  echo ""
+  echo "== Top Nodes =="
+  kubectl top nodes --no-headers
+  if [ $? -ne 0 ]; then
+    echo "WARNING: 'kubectl top nodes' command encountered an issue. Metrics might not be available yet."
+  fi
+else
+  echo ""
+  echo "-----------------------------------------------------"
+  echo "INFO: 6. Skipping 'kubectl top' commands (metrics-server not ready)."
+  echo "-----------------------------------------------------"
+fi
+
+echo ""
+echo "-----------------------------------------------------"
+echo "SCRIPT COMPLETED."
+echo "-----------------------------------------------------"
