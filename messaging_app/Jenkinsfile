@@ -1,0 +1,85 @@
+pipeline {
+    agent any
+
+    environment {
+        // The directory within the repo where the app and Jenkinsfile are located
+        APP_DIRECTORY = 'messaging_app'
+        
+        // IMPORTANT: Replace with your Docker Hub username and the desired image name.
+        // Example: "myusername/django-messaging-app"
+        DOCKER_IMAGE_NAME = "your-dockerhub-username/messaging-app"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Checking out source code...'
+                // Checks out the repository. Make sure the credentialsId and URL are correct.
+                git branch: 'main',
+                    credentialsId: 'github-credentials', // The ID for your GitHub credentials in Jenkins
+                    url: 'https://github.com/your-github-username/alx-backend-python.git' // Your repository URL
+                
+                // Change into the application directory to work with the correct files
+                dir(APP_DIRECTORY) {
+                    script {
+                        // Stash the source files to make them available in later stages
+                        stash name: 'source', includes: '**/*'
+                    }
+                }
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                echo 'Running tests...'
+                // Restore the stashed source code
+                unstash 'source'
+                
+                // This assumes you have pytest and other dependencies listed in requirements.txt
+                withPythonEnv('python3') {
+                    sh 'pip install -r requirements.txt'
+                    sh 'pytest --junitxml=test-reports/results.xml'
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    echo "Building Docker image: ${env.DOCKER_IMAGE_NAME}..."
+                    // This command builds the Docker image using the Dockerfile
+                    // located in the current directory (which is APP_DIRECTORY)
+                    docker.build(env.DOCKER_IMAGE_NAME)
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    echo "Logging into Docker Hub and pushing image..."
+                    // This block uses the Docker Hub credentials stored in Jenkins
+                    // to log in and push the image to the specified registry.
+                    docker.withRegistry('https://registry.hub.docker.com', 'dockerhub-credentials') {
+                        def image = docker.image(env.DOCKER_IMAGE_NAME)
+
+                        // Push the image with the 'latest' tag
+                        image.push('latest')
+
+                        // It's good practice to also tag with the build number for versioning
+                        image.push("${env.BUILD_NUMBER}")
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        // This 'post' block runs after all stages are completed
+        always {
+            echo 'Archiving test reports...'
+            // This step gathers the test results and displays them on the Jenkins UI
+            junit 'test-reports/**/*.xml'
+        }
+    }
+}
