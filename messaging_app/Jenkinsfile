@@ -29,18 +29,27 @@ pipeline {
             steps {
                 script {
                     echo "Python version check inside the container:"
-                    sh "python --version" // 'python' is aliased to python3 in this image
+                    sh "python --version"
 
                     echo "Creating Python virtual environment named '${VENV_DIR}'..."
                     sh "python -m venv ${VENV_DIR}"
 
                     echo 'Activating virtual environment and installing project dependencies...'
+                    // This logic is now cleaner and more robust
                     if (fileExists('requirements.txt')) {
+                        // Activate the venv, upgrade pip, and install from requirements.txt
                         sh ". ${VENV_DIR}/bin/activate && pip install --upgrade pip && pip install -r requirements.txt"
+
+                        // If your project code needs to be importable (e.g., you have a setup.py),
+                        // install it in editable mode. If not, this step can be skipped.
+                        // Assuming messaging_app might have local modules to test:
+                        // sh ". ${VENV_DIR}/bin/activate && pip install -e ."
+
                         echo 'Dependencies installed from requirements.txt.'
                     } else {
-                        echo 'requirements.txt not found. Installing pytest directly...'
-                        sh ". ${VENV_DIR}/bin/activate && pip install --upgrade pip && pip install pytest"
+                        // This 'else' block can now be removed or kept as a fallback.
+                        // It's better to make requirements.txt a hard requirement for the build.
+                        error "A 'requirements.txt' file was not found in the root of the repository. This is required to run the pipeline."
                     }
                 }
             }
