@@ -1,53 +1,65 @@
 // messaging_app/Jenkinsfile
 
 pipeline {
-    agent any
+    // 1. Agent Configuration (THE KEY CHANGE IS HERE)
+    // We now specify a Docker agent. Jenkins will pull this official Python image
+    // and run all the stages inside a container created from it.
+    agent {
+        docker {
+            image 'python:3.9-slim' // A lightweight, official Python image
+            args '-u root' // Run as root user inside the container to avoid permission issues when creating files
+        }
+    }
 
+    // 2. Environment Variables (No change here)
     environment {
         PYTHONUNBUFFERED = '1'
         VENV_DIR = 'venv'
     }
 
+    // 3. Stages (The logic inside remains the same)
     stages {
 
-        // --- Stage 1: Install Dependencies ---
-        // The code is already checked out by Jenkins automatically when using 'Pipeline script from SCM'.
-        // So, our first real action is to install dependencies.
+        // --- Stage 1: Checkout ---
+        // Checkout stage no longer needed as Jenkins handles it automatically
+        // when using a Docker agent. The source code is mounted into the container.
+
+        // --- Stage 2: Install Dependencies ---
         stage('Install Dependencies') {
             steps {
                 script {
-                    echo "Creating Python virtual environment..."
-                    sh "python3 -m venv ${VENV_DIR}"
+                    echo "Python version check inside the container:"
+                    sh "python --version" // 'python' is aliased to python3 in this image
 
-                    echo 'Installing project dependencies...'
-                    // Activate venv and run commands in the same shell step.
-                    // This assumes 'requirements.txt' is in your GitHub repository root.
+                    echo "Creating Python virtual environment named '${VENV_DIR}'..."
+                    sh "python -m venv ${VENV_DIR}"
+
+                    echo 'Activating virtual environment and installing project dependencies...'
                     if (fileExists('requirements.txt')) {
                         sh ". ${VENV_DIR}/bin/activate && pip install --upgrade pip && pip install -r requirements.txt"
+                        echo 'Dependencies installed from requirements.txt.'
                     } else {
-                        // Fallback: If no requirements.txt, just install pytest for the tests.
-                        echo 'requirements.txt not found. Installing pytest directly.'
+                        echo 'requirements.txt not found. Installing pytest directly...'
                         sh ". ${VENV_DIR}/bin/activate && pip install --upgrade pip && pip install pytest"
                     }
                 }
             }
         }
 
-        // --- Stage 2: Run Tests with Pytest ---
+        // --- Stage 3: Run Tests with Pytest ---
         stage('Run Tests') {
             steps {
                 script {
-                    echo 'Running tests...'
+                    echo 'Running tests using pytest...'
                     try {
                         sh "mkdir -p reports"
-                        sh ". ${VENV_DIR}/bin/activate && pytest --junitxml=reports/report.xml"
+                        // Note the command is now 'python -m pytest' which is a reliable way to call pytest from the venv
+                        sh ". ${VENV_DIR}/bin/activate && python -m pytest --junitxml=reports/report.xml"
                     } catch (Exception err) {
-                        echo "Tests failed. See report for details."
-                        // We throw the error so the pipeline status reflects the failure.
+                        echo "Tests failed. The build will be marked as unstable or failed."
                         throw err
                     } finally {
                         echo 'Publishing test report...'
-                        // The 'junit' step archives the report and shows test results in the UI.
                         junit allowEmptyResults: true, testResults: 'reports/**/*.xml'
                     }
                 }
@@ -55,11 +67,11 @@ pipeline {
         }
     }
 
-    // Post-build actions for cleanup
+    // 4. Post-build Actions (No change here)
     post {
         always {
-            echo 'Cleaning up workspace...'
-            // Clean up the virtual environment and reports directory.
+            echo 'Pipeline finished. Cleaning up workspace...'
+            // Clean up the directories created inside the container
             sh "rm -rf ${VENV_DIR} reports"
         }
     }
