@@ -22,7 +22,7 @@ pipeline {
                 // The 'git' step uses the Git plugin.
                 // It requires credentials to be configured in Jenkins with the ID 'github-credentials'.
                 // Replace 'your-github-username' with your actual GitHub username.
-                git credentialsId: 'github-credentials', url: 'https://github.com/logicNreasonin/alx-backend-python.git', branch: 'main'
+                git credentialsId: 'github-alx-credentials', url: 'https://github.com/logicNreasonin/alx-backend-python.git', branch: 'main'
             }
         }
 
