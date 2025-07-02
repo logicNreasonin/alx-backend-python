@@ -6,8 +6,8 @@ pipeline {
     // and run all the stages inside a container created from it.
     agent {
         docker {
-            image 'python:3.9-slim' // A lightweight, official Python image
-            args '-u root' // Run as root user inside the container to avoid permission issues when creating files
+            image 'python:3.11-slim' // Use a newer version of Python
+            args '-u root'
         }
     }
 
