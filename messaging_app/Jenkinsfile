@@ -1,87 +1,93 @@
-// messaging_app/Jenkinsfile
+// Declarative Pipeline for the Django Messaging App
 
 pipeline {
-    // 1. Agent Configuration (THE KEY CHANGE IS HERE)
-    // We now specify a Docker agent. Jenkins will pull this official Python image
-    // and run all the stages inside a container created from it.
-    agent {
-        docker {
-            image 'python:3.11-slim' // Use a newer version of Python
-            args '-u root'
-        }
-    }
+    // 1. Specify the agent
+    // 'agent any' means Jenkins can use any available agent (executor) to run this pipeline.
+    agent any
 
-    // 2. Environment Variables (No change here)
+    // 2. Define environment variables (optional but good practice)
     environment {
-        PYTHONUNBUFFERED = '1'
-        VENV_DIR = 'venv'
+        // Define a variable for the virtual environment directory name
+        VENV_DIR = '.venv'
     }
 
-    // 3. Stages (The logic inside remains the same)
+    // 3. Define the stages of the pipeline
     stages {
-
-        // --- Stage 1: Checkout ---
-        // Checkout stage no longer needed as Jenkins handles it automatically
-        // when using a Docker agent. The source code is mounted into the container.
-
-        // --- Stage 2: Install Dependencies ---
-        stage('Install Dependencies') {
+        // STAGE 1: Checkout code from Source Control (GitHub)
+        stage('Checkout from GitHub') {
             steps {
-                script {
-                    echo "Python version check inside the container:"
-                    sh "python --version"
+                // Clean the workspace before checking out new code to prevent conflicts
+                cleanWs()
+                echo 'Checking out code...'
+                // The 'git' step uses the Git plugin.
+                // It requires credentials to be configured in Jenkins with the ID 'github-credentials'.
+                // Replace 'your-github-username' with your actual GitHub username.
+                git credentialsId: 'github-credentials', url: 'https://github.com/logicNreasonin/alx-backend-python.git', branch: 'main'
+            }
+        }
 
-                    echo "Creating Python virtual environment named '${VENV_DIR}'..."
-                    sh "python -m venv ${VENV_DIR}"
-
-                    echo 'Activating virtual environment and installing project dependencies...'
-                    // This logic is now cleaner and more robust
-                    if (fileExists('requirements.txt')) {
-                        // Activate the venv, upgrade pip, and install from requirements.txt
-                        sh ". ${VENV_DIR}/bin/activate && pip install --upgrade pip && pip install -r requirements.txt"
-
-                        // If your project code needs to be importable (e.g., you have a setup.py),
-                        // install it in editable mode. If not, this step can be skipped.
-                        // Assuming messaging_app might have local modules to test:
-                        // sh ". ${VENV_DIR}/bin/activate && pip install -e ."
-
-                        echo 'Dependencies installed from requirements.txt.'
-                    } else {
-                        // This 'else' block can now be removed or kept as a fallback.
-                        // It's better to make requirements.txt a hard requirement for the build.
-                        error "A 'requirements.txt' file was not found in the root of the repository. This is required to run the pipeline."
+        // STAGE 2: Set up Python environment and install project dependencies
+        stage('Setup Environment & Install Dependencies') {
+            steps {
+                // Use the ShiningPanda plugin wrapper.
+                // It creates a virtual environment and runs commands within it.
+                // Assumes 'python3' is available on the Jenkins agent.
+                withPythonEnv('python3') {
+                    script {
+                        echo "Python virtual environment activated."
+                        echo "Installing dependencies from requirements.txt..."
+                        // Run a shell command to install dependencies into the virtual environment.
+                        // This assumes your requirements.txt is at the root of the 'messaging_app' directory.
+                        // Adjust the path if it's located elsewhere (e.g., '../requirements.txt' if at repo root).
+                        sh 'pip install -r requirements.txt'
                     }
                 }
             }
         }
 
-        // --- Stage 3: Run Tests with Pytest ---
+        // STAGE 3: Run tests using pytest
         stage('Run Tests') {
             steps {
-                script {
-                    echo 'Running tests using pytest...'
-                    try {
-                        sh "mkdir -p reports"
-                        // Note the command is now 'python -m pytest' which is a reliable way to call pytest from the venv
-                        sh ". ${VENV_DIR}/bin/activate && python -m pytest --junitxml=reports/report.xml"
-                    } catch (Exception err) {
-                        echo "Tests failed. The build will be marked as unstable or failed."
-                        throw err
-                    } finally {
-                        echo 'Publishing test report...'
-                        junit allowEmptyResults: true, testResults: 'reports/**/*.xml'
+                // Reuse the same virtual environment setup
+                withPythonEnv('python3') {
+                    script {
+                        echo "Running tests with Pytest..."
+                        // Run pytest and generate a JUnit XML formatted report.
+                        // This is a standard format that Jenkins can easily parse.
+                        // Create the 'reports' directory first to prevent errors.
+                        sh 'mkdir -p reports'
+                        // If any tests fail, pytest will exit with a non-zero status code,
+                        // which will automatically fail this stage and stop the pipeline.
+                        // Note: Replace 'your_django_project.tests' with the path to your test files if pytest can't auto-discover them.
+                        // Usually running pytest from the directory containing it is enough.
+                        // Assuming the tests for the app are in 'messaging_app', you can target it.
+                        sh 'pytest messaging_app/ --junitxml=reports/junit-report.xml'
                     }
                 }
             }
         }
     }
 
-    // 4. Post-build Actions (No change here)
+    // 4. Define post-build actions
+    // This 'post' block runs after all stages have completed.
     post {
+        // 'always' means this will run regardless of whether the pipeline succeeded, failed, or was aborted.
         always {
-            echo 'Pipeline finished. Cleaning up workspace...'
-            // Clean up the directories created inside the container
-            sh "rm -rf ${VENV_DIR} reports"
+            echo "Archiving test reports..."
+            // Use the JUnit plugin to collect and display the test results.
+            // This provides a "Test Result" link on the build page with graphs and details.
+            junit 'reports/junit-report.xml'
+
+            echo "Cleaning up workspace..."
+            // Clean the workspace after the build to save disk space on the Jenkins server.
+            cleanWs()
         }
+        // You could add other blocks like 'success', 'failure', etc., for notifications.
+        // success {
+        //     echo 'Pipeline completed successfully!'
+        // }
+        // failure {
+        //     echo 'Pipeline failed. Please check the logs.'
+        // }
     }
 }
