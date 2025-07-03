@@ -1,102 +1,169 @@
-// messaging_app/Jenkinsfile
-
 pipeline {
-    // 1. Agent Configuration
-    // The 'agent' specifies where the Pipeline will execute. 'any' means Jenkins can use any available agent.
     agent any
-
-    // 2. Environment Variables
-    // The 'environment' block configures variables available for all steps in the pipeline.
+    
     environment {
-        // Sets the Python buffer to unbuffered to see real-time output from tests in the Jenkins logs.
-        PYTHONUNBUFFERED = '1'
-        // Specifies the virtual environment directory name for consistency and cleanup.
-        VENV_DIR = 'venv'
+        PYTHON_VERSION = '3.9'
+        VENV_PATH = 'venv'
     }
-
-    // 3. Stages
-    // The 'stages' section defines a sequence of 'stage' blocks, which are the main parts of your pipeline.
+    
     stages {
-
-        // --- Stage 1: Checkout ---
-        // This stage clones the source code from your GitHub repository.
-        stage('Checkout Source Code') {
+        stage('Checkout') {
             steps {
-                echo 'Checking out code from GitHub...'
-                // The 'checkout scm' step uses the SCM configuration from the Jenkins job setup,
-                // including the repository URL and credentials.
-                checkout scm
-                echo 'Checkout complete.'
+                echo 'Pulling source code from GitHub...'
+                git branch: 'main', 
+                    credentialsId: 'github-credentials',
+                    url: 'https://github.com/YOUR_USERNAME/alx-backend-python.git'
             }
         }
-
-        // --- Stage 2: Install Dependencies ---
-        // This stage creates a Python virtual environment and installs project dependencies.
+        
+        stage('Setup Python Environment') {
+            steps {
+                echo 'Setting up Python virtual environment...'
+                sh '''
+                    python3 -m venv ${VENV_PATH}
+                    . ${VENV_PATH}/bin/activate
+                    pip install --upgrade pip
+                    pip install wheel setuptools
+                '''
+            }
+        }
+        
         stage('Install Dependencies') {
             steps {
-                script {
-                    echo "Creating Python virtual environment named '${VENV_DIR}'..."
-                    // Use 'python3' if 'python' is not aliased correctly on the agent.
-                    // This creates a self-contained environment to avoid dependency conflicts.
-                    sh "python3 -m venv ${VENV_DIR}"
-
-                    echo 'Activating virtual environment and installing project dependencies...'
-                    // Each 'sh' step runs in its own shell, so you must activate the venv and run
-                    // commands in the same step.
-                    // This assumes a 'requirements.txt' file exists in your repo's root directory.
-                    if (fileExists('requirements.txt')) {
-                        sh ". ${VENV_DIR}/bin/activate && pip install --upgrade pip && pip install -r requirements.txt"
-                        echo 'Dependencies installed from requirements.txt.'
-                    } else {
-                        // If no requirements.txt, just install pytest for the tests to run.
-                        echo 'requirements.txt not found. Installing pytest directly...'
-                        sh ". ${VENV_DIR}/bin/activate && pip install --upgrade pip && pip install pytest"
-                    }
+                echo 'Installing Python dependencies...'
+                dir('messaging_app') {
+                    sh '''
+                        . ../${VENV_PATH}/bin/activate
+                        
+                        # Install requirements if file exists
+                        if [ -f requirements.txt ]; then
+                            pip install -r requirements.txt
+                        fi
+                        
+                        # Install testing dependencies
+                        pip install pytest pytest-html pytest-cov pytest-mock
+                        
+                        # Install any additional dependencies for the messaging app
+                        pip install mock unittest-mock
+                    '''
                 }
             }
         }
-
-        // --- Stage 3: Run Tests with Pytest ---
-        // This stage executes the tests and generates a standard report for Jenkins.
+        
+        stage('Code Quality Check') {
+            steps {
+                echo 'Running code quality checks...'
+                dir('messaging_app') {
+                    sh '''
+                        . ../${VENV_PATH}/bin/activate
+                        
+                        # Install code quality tools
+                        pip install flake8 pylint
+                        
+                        # Run flake8 (ignore exit code for now)
+                        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || true
+                        
+                        # Run pylint (ignore exit code for now)
+                        pylint *.py || true
+                    '''
+                }
+            }
+        }
+        
         stage('Run Tests') {
             steps {
-                script {
-                    echo 'Running tests using pytest...'
-                    // We use a try-catch-finally block to ensure that the test report is published
-                    // even if the tests fail, which is a crucial part of CI.
-                    try {
-                        // Run pytest from within the virtual environment.
-                        // '--junitxml' generates a report in a format Jenkins understands (JUnit XML).
-                        // It's good practice to place reports in a dedicated directory.
-                        sh "mkdir -p reports"
-                        sh ". ${VENV_DIR}/bin/activate && pytest --junitxml=reports/report.xml"
-                    } catch (Exception err) {
-                        echo "Tests failed. The build will be marked as unstable or failed."
-                        // Re-throw the error to ensure the pipeline's overall status reflects the failure.
-                        throw err
-                    } finally {
-                        // The 'finally' block ensures this step always runs after the 'try' block.
-                        echo 'Publishing test report...'
-                        // The 'junit' step, provided by the JUnit Plugin, parses the XML report
-                        // and displays the results beautifully on the Jenkins job page,
-                        // including trends and specific failures.
-                        // 'allowEmptyResults: true' prevents an error if no tests were found.
-                        junit allowEmptyResults: true, testResults: 'reports/**/*.xml'
-                    }
+                echo 'Running tests with pytest...'
+                dir('messaging_app') {
+                    sh '''
+                        . ../${VENV_PATH}/bin/activate
+                        
+                        # Set Python path to include current directory
+                        export PYTHONPATH="${PYTHONPATH}:."
+                        
+                        # Run pytest with detailed output and reports
+                        python -m pytest tests/ -v \
+                            --html=test-report.html \
+                            --self-contained-html \
+                            --cov=. \
+                            --cov-report=html:coverage_html \
+                            --cov-report=xml:coverage.xml \
+                            --cov-report=term-missing \
+                            --junit-xml=test-results.xml \
+                            --tb=short
+                    '''
+                }
+            }
+        }
+        
+        stage('Generate Reports') {
+            steps {
+                echo 'Publishing test and coverage reports...'
+                dir('messaging_app') {
+                    // Publish HTML Test Report
+                    publishHTML([
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: '.',
+                        reportFiles: 'test-report.html',
+                        reportName: 'PyTest HTML Report',
+                        reportTitles: 'Test Execution Report'
+                    ])
+                    
+                    // Publish Coverage Report
+                    publishHTML([
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'coverage_html',
+                        reportFiles: 'index.html',
+                        reportName: 'Code Coverage Report',
+                        reportTitles: 'Coverage Analysis'
+                    ])
                 }
             }
         }
     }
-
-    // 4. Post-build Actions
-    // The 'post' section defines actions that run at the end of the pipeline's execution.
+    
     post {
-        // The 'always' block runs regardless of the pipeline's outcome (success, failure, etc.).
-        // It's the perfect place for cleanup tasks.
         always {
-            echo 'Pipeline finished. Cleaning up workspace...'
-            // Remove the virtual environment to ensure the workspace is clean for the next build.
-            sh "rm -rf ${VENV_DIR} reports"
+            echo 'Archiving artifacts and cleaning up...'
+            dir('messaging_app') {
+                // Archive test artifacts
+                archiveArtifacts artifacts: 'test-report.html,coverage.xml,test-results.xml', 
+                                fingerprint: true, 
+                                allowEmptyArchive: true
+                
+                // Publish JUnit test results
+                publishTestResults([
+                    testResultsPattern: 'test-results.xml',
+                    mergeTestResults: true,
+                    failOnError: true,
+                    keepLongStdio: true
+                ])
+                
+                // Clean up virtual environment
+                sh '''
+                    rm -rf ../${VENV_PATH}
+                '''
+            }
+        }
+        
+        success {
+            echo '✅ Pipeline completed successfully!'
+            echo 'Test reports are available in the Jenkins dashboard.'
+        }
+        
+        failure {
+            echo '❌ Pipeline failed. Check the console output for details.'
+        }
+        
+        unstable {
+            echo '⚠️  Pipeline completed with test failures or unstable results.'
+        }
+        
+        changed {
+            echo '📧 Pipeline status changed. Consider setting up notifications.'
         }
     }
 }
