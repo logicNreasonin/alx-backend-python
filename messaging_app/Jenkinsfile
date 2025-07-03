@@ -12,7 +12,7 @@ pipeline {
                 echo 'Pulling source code from GitHub...'
                 git branch: 'main', 
                     credentialsId: 'github-credentials',
-                    url: 'https://github.com/YOUR_USERNAME/alx-backend-python.git'
+                    url: 'https://github.com/logicNreasonin/alx-backend-python.git'
             }
         }
         
